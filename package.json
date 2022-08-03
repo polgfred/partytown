@@ -1,0 +1,12 @@
+{
+  "name": "partytown-worker",
+  "version": "0.0.1",
+  "devDependencies": {
+    "wrangler": "2.0.24"
+  },
+  "private": true,
+  "scripts": {
+    "start": "wrangler dev",
+    "deploy": "wrangler publish"
+  }
+}

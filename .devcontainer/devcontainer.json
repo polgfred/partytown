@@ -1,0 +1,6 @@
+{
+  "image": "mcr.microsoft.com/vscode/devcontainers/javascript-node",
+  "remoteUser": "node",
+  "mounts": ["type=bind,source=${localEnv:HOME}/.ssh,target=/home/node/.ssh"],
+  "extensions": ["esbenp.prettier-vscode"]
+}
