@@ -13,29 +13,34 @@ import debug_partytown_ww_sw_js from './public/debug/partytown-ww-sw.txt';
 
 const statics = {
   // partytown scripts
-  '/public/partytown.txt': partytown_js,
-  '/public/partytown-atomics.txt': partytown_atomics_js,
-  '/public/partytown-media.txt': partytown_sw_js,
-  '/public/partytown-sw.txt': partytown_media_js,
+  '/partytown.js': partytown_js,
+  '/partytown-atomics.js': partytown_atomics_js,
+  '/partytown-media.js': partytown_sw_js,
+  '/partytown-sw.js': partytown_media_js,
   // partydown debug scripts
-  '/debug/partytown.txt': debug_partytown_js,
-  '/debug/partytown-atomics.txt': debug_partytown_atomics_js,
-  '/debug/partytown-media.txt': debug_partytown_media_js,
-  '/debug/partytown-sandbox-sw.txt': debug_partytown_sandbox_sw_js,
-  '/debug/partytown-sw.txt': debug_partytown_sw_js,
-  '/debug/partytown-ww-atomics.txt': debug_partytown_ww_atomics_js,
-  '/debug/partytown-ww-sw.txt': debug_partytown_ww_sw_js,
+  '/debug/partytown.js': debug_partytown_js,
+  '/debug/partytown-atomics.js': debug_partytown_atomics_js,
+  '/debug/partytown-media.js': debug_partytown_media_js,
+  '/debug/partytown-sandbox-sw.js': debug_partytown_sandbox_sw_js,
+  '/debug/partytown-sw.js': debug_partytown_sw_js,
+  '/debug/partytown-ww-atomics.js': debug_partytown_ww_atomics_js,
+  '/debug/partytown-ww-sw.js': debug_partytown_ww_sw_js,
 };
 
 addEventListener('fetch', (ev) => {
   ev.respondWith(handleRequest(ev.request));
 });
 
-async function handleRequest(req) {
-  const url = new URL(req.url);
+async function handleRequest(_req) {
+  const url = new URL(_req.url);
 
   // eventually this will come from headers
+  // const worker = `${url.protocol}//${url.hostname}`;
+  const worker = 'http://localhost:8787'; // use this for `wrangler dev`
   url.hostname = 'www.kremp.com';
+
+  const req = new Request(_req);
+  req.headers.set('referer', `https://${url.hostname}`);
 
   // remove /smx from the front of the url for proxying
   // if (url.pathname.startsWith('/smx')) {
@@ -43,15 +48,65 @@ async function handleRequest(req) {
   // }
 
   const acceptHeader = req.headers.get('accept');
+
+  // see if we need to return a partytown js script
+  if (url.pathname in statics) {
+    const headers = new Headers();
+    headers.set('Content-Type', 'text/javascript');
+    return new Response(statics[url.pathname], {
+      status: 200,
+      headers,
+    });
+  }
+
   if (acceptHeader) {
     if (acceptHeader.indexOf('text/html') >= 0) {
-      // see if we need to return a partytown js script
-      if (url.pathname in statics) {
-        return new Response(`<script>${statics[url.pathname]}</script>`, 200);
-      }
-
-      const res = await fetch(url.toString(), req);
+      const _res = await fetch(url.toString(), req);
+      const res = new Response(_res.body, _res);
       const writer = new HTMLRewriter();
+      // selector for any scripts that should be handled by partytown
+      writer.on(
+        'script[src*="lightboxcdn.com"],script[src*="chimpstatic.com"]',
+        {
+          element(el) {
+            const type = el.getAttribute('type');
+            if (!type || type === 'text/javascript') {
+              el.setAttribute('type', 'text/partytown');
+            }
+          },
+        }
+      );
+      // self-host all the things
+      writer.on('*', {
+        element: (el) => {
+          if (!el.removed) {
+            for (const attr of ['src', 'data-src', 'href', 'action', 'style']) {
+              if (el.hasAttribute(attr)) {
+                el.setAttribute(
+                  attr,
+                  el
+                    .getAttribute(attr)
+                    .replace(`https://${url.hostname}`, worker)
+                );
+              }
+            }
+          }
+        },
+      });
+      let body = '';
+      writer.on('script,style', {
+        text: (node) => {
+          body += node.text;
+          if (node.lastInTextNode) {
+            node.replace(body.replaceAll(`https://${url.hostname}`, worker), {
+              html: true,
+            });
+            body = '';
+          } else {
+            node.remove();
+          }
+        },
+      });
       // prepend the master partytown script inline to the top of the head
       writer.on('head', {
         element(el) {
@@ -59,12 +114,6 @@ async function handleRequest(req) {
           el.prepend(`<script>${debug_partytown_js}</script>`, {
             html: true,
           });
-        },
-      });
-      // selector for any scripts that should be handled by partytown
-      writer.on('script[src*="chimpstatic.com"]', {
-        element(el) {
-          el.setAttribute('type', 'text/partytown');
         },
       });
       return writer.transform(res);
