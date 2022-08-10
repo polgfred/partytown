@@ -1,3 +1,6 @@
 name = "public"
 main = "index.js"
 compatibility_date = "2022-08-02"
+
+[site]
+bucket = "./public"
