@@ -6,15 +6,25 @@ addEventListener('fetch', (ev) => {
 const manifest = JSON.parse(__STATIC_CONTENT_MANIFEST);
 
 async function handleRequest(ev) {
-  const url = new URL(ev.request.url);
-
-  // eventually this will come from headers
-  // const worker = `${url.protocol}//${url.hostname}`;
-  const worker = 'http://localhost:8787'; // use this for `wrangler dev`
-  url.hostname = 'www.kremp.com';
-
   const req = new Request(ev.request);
-  req.headers.set('referer', `https://${url.hostname}`);
+  const url = new URL(req.url);
+
+  // make sure we have an X-Host header
+  if (!req.headers.has('x-host')) {
+    return new Response('expected an X-Host header to be set', {
+      status: 400,
+    });
+  }
+
+  // grab the original worker origin for self-hosting
+  const worker = DEVMODE ? 'http://localhost:8787' : url.origin;
+
+  // replace the incoming URL with the one we're proxying to
+  url.protocol = 'https:';
+  url.hostname = req.headers.get('x-host');
+
+  // set the referer so we can proxy to these resources
+  req.headers.set('referer', url.origin);
 
   // remove /smx from the front of the url for proxying
   // if (url.pathname.startsWith('/smx')) {
@@ -36,8 +46,7 @@ async function handleRequest(ev) {
 
   if (acceptHeader) {
     if (acceptHeader.indexOf('text/html') >= 0) {
-      const _res = await fetch(url.toString(), req);
-      const res = new Response(_res.body, _res);
+      const res = await fetch(url.toString(), req);
 
       // fetch the partytown script so we can inline it
       const partytownJS = await __STATIC_CONTENT.get(
@@ -66,9 +75,7 @@ async function handleRequest(ev) {
               if (el.hasAttribute(attr)) {
                 el.setAttribute(
                   attr,
-                  el
-                    .getAttribute(attr)
-                    .replace(`https://${url.hostname}`, worker)
+                  el.getAttribute(attr).replace(url.origin, worker)
                 );
               }
             }
@@ -80,7 +87,7 @@ async function handleRequest(ev) {
         text: (node) => {
           body += node.text;
           if (node.lastInTextNode) {
-            node.replace(body.replaceAll(`https://${url.hostname}`, worker), {
+            node.replace(body.replaceAll(url.origin, worker), {
               html: true,
             });
             body = '';
@@ -100,6 +107,7 @@ async function handleRequest(ev) {
           );
         },
       });
+
       return writer.transform(res);
     }
   }
